@@ -51,6 +51,14 @@ def parse(response):
     print(response)
     return json.loads(response)
 
+from concurrent.futures import ThreadPoolExecutor
+
+def run_parallel(actions):
+    def run_action(action):
+        return action["name"], action["input"], TOOLS[action["name"]](action["input"])
+
+    with ThreadPoolExecutor() as executor:
+        return list(executor.map(run_action, actions))
 
 def agent(question, call_llm):
     memory = []
@@ -64,6 +72,7 @@ def agent(question, call_llm):
 
         response = call_llm(prompt)
         data = parse(response)
+        pending_actions = []
 
         for item in data:
 
@@ -77,14 +86,15 @@ def agent(question, call_llm):
                 continue
 
             used_tools.add((name, tool_input))
+            pending_actions.append({"name": name, "input": tool_input})
 
-            result = TOOLS[name](tool_input)
-
-            memory.append({
-                "tool": name,
-                "input": tool_input,
-                "output": result
-            })
+        if pending_actions:
+            for name, tool_input, result in run_parallel(pending_actions):
+                memory.append({
+                    "tool": name,
+                    "input": tool_input,
+                    "output": result
+                })
 
 
 from openai import OpenAI
@@ -126,23 +136,15 @@ print(agent("Check the weeather in Warsaw, show latest AI news, and how much is 
 #   {
 #     "type": "action",
 #     "name": "calculate",
-#     "input": "15*32"
+#     "input": "15 * 32"
 #   }
 # ]
 # ----------------------------
-# [{'tool': 'get_weather', 'input': 'Warsaw', 'output': 'Weather in Warsaw: rainy 18°C'}, {'tool': 'get_news', 'input': 'AI', 'output': 'News about AI: AI adoption growing'}, {'tool': 'calculate', 'input': '15*32', 'output': '480'}]
+# [{'tool': 'get_weather', 'input': 'Warsaw', 'output': 'Weather in Warsaw: rainy 18°C'}, {'tool': 'get_news', 'input': 'AI', 'output': 'News about AI: AI adoption growing'}, {'tool': 'calculate', 'input': '15 * 32', 'output': '480'}]
 # [
 #   {
 #     "type": "final",
-#     "answer": "Weather in Warsaw: rainy 18°C\nLatest AI news: AI adoption growing\n15 × 32 = 480"
+#     "answer": "Weather in Warsaw: rainy 18°C. Latest AI news: AI adoption growing. 15 × 32 = 480."
 #   }
 # ]
-# [
-#   {
-#     "type": "final",
-#     "answer": "Weather in Warsaw: rainy 18°C\nLatest AI news: AI adoption growing\n15 × 32 = 480"
-#   }
-# ]
-# Weather in Warsaw: rainy 18°C
-# Latest AI news: AI adoption growing
-# 15 × 32 = 480
+# Weather in Warsaw: rainy 18°C. Latest AI news: AI adoption growing. 15 × 32 = 480.
