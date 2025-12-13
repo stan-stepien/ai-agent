@@ -67,8 +67,9 @@ def run_tool(action):
 # agent loop
 def agent(question, call_llm):
     memory = ""
-    print('----------------------------')
     while True:
+        print('----------------------------')
+        print(memory)
         prompt = system_prompt + "\n\n" + memory + f"\nQuestion: {question}"
         # print(prompt)
         response = call_llm(prompt)
@@ -107,4 +108,4 @@ def call_llm(prompt: str):
     return response.choices[0].message.content
 
 
-agent("Czy potrzebuję parasola we Wroclawiu i ile to 15 * 32?", call_llm)
+agent("Do you need an umbrella in Wrocław, and how much is 15 × 32", call_llm)
