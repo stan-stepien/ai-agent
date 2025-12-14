@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import threading
+import types
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
@@ -15,6 +16,7 @@ tools_lock = threading.Lock()
 
 MAX_TOOL_RETRIES = 3
 system_prompt = ""
+_tool_load_seq = 0
 
 
 def is_tool_file(path):
@@ -28,14 +30,18 @@ def refresh_system_prompt():
 
 
 def load_tool(path):
+    global _tool_load_seq
     path = os.path.abspath(path)
     if not is_tool_file(path):
         return
 
     name = os.path.splitext(os.path.basename(path))[0]
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    _tool_load_seq += 1
+    module_name = f"{name}_{_tool_load_seq}"
+    module = types.ModuleType(module_name)
+    module.__file__ = path
+    with open(path, encoding="utf-8") as f:
+        exec(compile(f.read(), path, "exec"), module.__dict__)
 
     assert hasattr(module, "run"), "Tool missing run()"
     assert hasattr(module, "tool_name"), "Tool missing tool_name"
@@ -280,8 +286,15 @@ def call_llm(prompt: str):
     return response.choices[0].message.content
 
 
-load_tools()
-refresh_system_prompt()
-start_tool_watcher()
+def main():
+    load_tools()
+    refresh_system_prompt()
+    start_tool_watcher()
+    print(agent(
+        "Check the weeather in Warsaw, show latest AI news, and how much is 15 × 32?",
+        call_llm,
+    ))
 
-print(agent("Check the weeather in Warsaw, show latest AI news, and how much is 15 × 32?", call_llm))
+
+if __name__ == "__main__":
+    main()

@@ -14,10 +14,52 @@ Loop:
 * function result returns to LLM (Action_Response)
 * LLM returns Answer
 
-## langchain-agent.py
+## agent.py
 
+## Tests
 
-memory []
-----------------------------
-memory [{'tool': 'get_weather', 'input': 'Wrocław', 'output': 'Weather in Wrocław: rainy 18°C'}]
-Tak, potrzebujesz parasola we Wrocławiu (jest deszczowo). 15 * 32 = 480.
+Tests use **pytest** and run without calling the real OpenAI API (mock `call_llm`).
+
+### Setup
+
+Install dev dependencies:
+
+```bash
+uv sync
+```
+
+### Run all tests
+
+```bash
+uv run pytest
+```
+
+Quiet output:
+
+```bash
+uv run pytest -q
+```
+
+Run a single file or test:
+
+```bash
+uv run pytest tests/test_agent.py
+uv run pytest tests/test_tools.py::test_load_tool_registers_tool
+```
+
+### What is covered
+
+* `tests/test_tools.py` — loading/unloading tools, hot reload handler, `system_prompt`
+* `tests/test_agent.py` — parsing JSON, collecting actions, agent loop with fake LLM, retry after tool error
+
+No `OPENAI_API_KEY` is required for pytest.
+
+### Manual smoke test (real LLM)
+
+To run the agent end-to-end with OpenAI:
+
+```bash
+uv run python agent.py
+```
+
+Requires `OPENAI_API_KEY` in `.env`.
