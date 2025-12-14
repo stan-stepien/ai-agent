@@ -1,6 +1,6 @@
 # Basic multi-tool agent in python
 
-## basic-agent.py
+## Basic agent basic-agent.py
 
 Tools:
 * get_weather(city)
@@ -14,7 +14,15 @@ Loop:
 * function result returns to LLM (Action_Response)
 * LLM returns Answer
 
-## agent.py
+
+## Improved agent agent.py
+
+* same tools but implemented as a plugins, auto loaded with hot auto reload feature
+* JSON only LLM results
+* structured memory (tool, input output)
+* parallel tool execution
+* auto fix when LLM returned invalid tool name or parameters
+
 
 ## Tests
 
