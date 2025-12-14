@@ -1,4 +1,4 @@
-    # tools (API simulation)
+from httpx import options  # tools (API simulation)
 
 def get_weather(city):
     return f"Weather in {city}: rainy 18°C"
@@ -16,6 +16,8 @@ TOOLS = {
     "get_news": get_news,
     "calculate": calculate
 }
+
+MAX_TOOL_RETRIES = 3
 
 # system prompt with multi-tool ReAct (Reason + Act), only JSON output
 system_prompt = """
@@ -51,14 +53,46 @@ def parse(response):
     print(response)
     return json.loads(response)
 
+
+def normalize_parsed(data):
+    if isinstance(data, dict):
+        return [data]
+    return data
+
+
+def collect_actions(data, used_tools):
+    pending_actions = []
+    for item in normalize_parsed(data):
+        if item["type"] == "final":
+            return pending_actions, item["answer"]
+
+        name = item["name"]
+        tool_input = item["input"]
+
+        if (name, tool_input) in used_tools:
+            continue
+
+        pending_actions.append({"name": name, "input": tool_input})
+
+    return pending_actions, None
+
+
 from concurrent.futures import ThreadPoolExecutor
 
-def run_parallel(actions):
+# another option to run async functions
+#
+# results = await asyncio.gather(
+#     get_weather("Warsaw"),
+#     get_news("AI"),
+#     calculate("15*32")
+# )
+def run_tools(actions):
     def run_action(action):
         return action["name"], action["input"], TOOLS[action["name"]](action["input"])
 
     with ThreadPoolExecutor() as executor:
         return list(executor.map(run_action, actions))
+
 
 def agent(question, call_llm):
     memory = []
@@ -72,34 +106,53 @@ def agent(question, call_llm):
 
         response = call_llm(prompt)
         data = parse(response)
-        pending_actions = []
-
-        for item in data:
-
-            if item["type"] == "final":
-                return item["answer"]
-
-            name = item["name"]
-            tool_input = item["input"]
-
-            if (name, tool_input) in used_tools:
-                continue
-
-            used_tools.add((name, tool_input))
-            pending_actions.append({"name": name, "input": tool_input})
+        pending_actions, final_answer = collect_actions(data, used_tools)
+        if final_answer is not None:
+            return final_answer
 
         if pending_actions:
-            for name, tool_input, result in run_parallel(pending_actions):
-                memory.append({
-                    "tool": name,
-                    "input": tool_input,
-                    "output": result
-                })
+            for attempt in range(MAX_TOOL_RETRIES):
+                try:
+                    results = run_tools(pending_actions)
+                    for name, tool_input, result in results:
+                        used_tools.add((name, tool_input))
+                        memory.append({
+                            "tool": name,
+                            "input": tool_input,
+                            "output": result
+                        })
+                    break
+                except Exception as e:
+                    if attempt == MAX_TOOL_RETRIES - 1:
+                        memory.append({"error": str(e), "actions": pending_actions})
+                        break
+                    response = llm_fix(response, str(e))
+                    data = parse(response)
+                    pending_actions, final_answer = collect_actions(data, used_tools)
+                    if final_answer is not None:
+                        return final_answer
+                    if not pending_actions:
+                        break
 
 
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
+
+def llm_fix(response, error):
+    prompt = f"""
+The tool call failed.
+
+Original response:
+{response}
+
+Error:
+{error}
+
+Return ONLY corrected JSON (same format as original: action array or final object).
+"""
+
+    return call_llm(prompt)
 
 
 def call_llm(prompt: str):
