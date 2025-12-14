@@ -1,53 +1,64 @@
-from httpx import options  # tools (API simulation)
+import importlib.util
+import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 
-def get_weather(city):
-    return f"Weather in {city}: rainy 18°C"
+from dotenv import load_dotenv
+from openai import OpenAI
 
-
-def get_news(topic):
-    return f"News about {topic}: AI adoption growing"
-
-
-def calculate(expr):
-    return str(eval(expr))
-
-TOOLS = {
-    "get_weather": get_weather,
-    "get_news": get_news,
-    "calculate": calculate
-}
+TOOLS = {}
 
 MAX_TOOL_RETRIES = 3
 
-# system prompt with multi-tool ReAct (Reason + Act), only JSON output
-system_prompt = """
+
+def load_tools(folder="tools"):
+    for file in os.listdir(folder):
+        if not file.endswith(".py") or file.startswith("_"):
+            continue
+
+        name = file[:-3]
+        path = os.path.join(folder, file)
+
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        assert hasattr(module, "run"), "Tool missing run()"
+        assert hasattr(module, "tool_name"), "Tool missing tool_name"
+
+        TOOLS[module.tool_name] = module.run
+
+
+def build_system_prompt():
+    tools_list = "\n".join(f"- {name}(input)" for name in sorted(TOOLS))
+    return f"""
 You are an agent.
 
 You MUST output ONLY JSON array
 
 if action:
 [
-  {
+  {{
     "type": "action",
     "name": "...",
     "input": "..."
-  }
+  }}
 ]
 
 If final:
-{
+{{
   "type": "final",
   "answer": "..."
-}
+}}
 
 Available tools:
-- get_weather(city)
-- get_news(topic)
-- calculate(expression)
+{tools_list}
 """
 
-# agent loop
-import json
+
+load_tools()
+system_prompt = build_system_prompt()
+
 
 def parse(response):
     print(response)
@@ -77,15 +88,6 @@ def collect_actions(data, used_tools):
     return pending_actions, None
 
 
-from concurrent.futures import ThreadPoolExecutor
-
-# another option to run async functions
-#
-# results = await asyncio.gather(
-#     get_weather("Warsaw"),
-#     get_news("AI"),
-#     calculate("15*32")
-# )
 def run_tools(actions):
     def run_action(action):
         return action["name"], action["input"], TOOLS[action["name"]](action["input"])
@@ -135,10 +137,6 @@ def agent(question, call_llm):
                         break
 
 
-from openai import OpenAI
-import os
-from dotenv import load_dotenv
-
 def llm_fix(response, error):
     prompt = f"""
 The tool call failed.
@@ -172,32 +170,3 @@ def call_llm(prompt: str):
 
 
 print(agent("Check the weeather in Warsaw, show latest AI news, and how much is 15 × 32?", call_llm))
-
-# ----------------------------
-# []
-# [
-#   {
-#     "type": "action",
-#     "name": "get_weather",
-#     "input": "Warsaw"
-#   },
-#   {
-#     "type": "action",
-#     "name": "get_news",
-#     "input": "AI"
-#   },
-#   {
-#     "type": "action",
-#     "name": "calculate",
-#     "input": "15 * 32"
-#   }
-# ]
-# ----------------------------
-# [{'tool': 'get_weather', 'input': 'Warsaw', 'output': 'Weather in Warsaw: rainy 18°C'}, {'tool': 'get_news', 'input': 'AI', 'output': 'News about AI: AI adoption growing'}, {'tool': 'calculate', 'input': '15 * 32', 'output': '480'}]
-# [
-#   {
-#     "type": "final",
-#     "answer": "Weather in Warsaw: rainy 18°C. Latest AI news: AI adoption growing. 15 × 32 = 480."
-#   }
-# ]
-# Weather in Warsaw: rainy 18°C. Latest AI news: AI adoption growing. 15 × 32 = 480.
